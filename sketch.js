@@ -57,8 +57,6 @@ let showStats = false;
 // smooths away again. Thirty is well under the 180 ms ramps it uses.
 const AUDIO_HZ = 30;
 let audioAccum = 0;
-// Fades the "click for sound" prompt out once audio is running.
-let promptFade = 1;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -178,17 +176,6 @@ function drawStats() {
   });
 }
 
-function drawSoundPrompt() {
-  if (sound.running) promptFade = Math.max(0, promptFade - 0.02);
-  if (promptFade <= 0) return;
-  noStroke();
-  fill(120, 220, 255, 90 * promptFade);
-  textSize(12);
-  textAlign(CENTER);
-  text('click for sound', width / 2, height - 24);
-  textAlign(LEFT);
-}
-
 function draw() {
   // Timestep normalised to the old 60fps baseline: 1 at 60fps, 0.25 at 240fps.
   // Clamped so a backgrounded tab doesn't come back with one giant step that
@@ -243,5 +230,4 @@ function draw() {
 
   if (showFps) drawFps();
   if (showStats) drawStats();
-  drawSoundPrompt();
 }

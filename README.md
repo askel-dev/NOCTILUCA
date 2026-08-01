@@ -1,4 +1,4 @@
-# Boids
+# NOCTILUCA
 
 Two hundred bioluminescent organisms drifting through dark water, and the sound
 they make while doing it.
@@ -72,15 +72,18 @@ a still flock is a silent one. Everything you hear is one of two things:
   while every fresh tightening gets its own bell. Expect one roughly every
   three seconds, more when you stir the flock.
 
-Audio starts on your first click, because browsers require a gesture before
-they will make sound.
+Audio starts on your first click, because browsers require a gesture before they
+will make sound. That is what the title screen is for: the flock is already
+swimming behind it, and clicking through both lifts the scrim and opens the
+AudioContext. If the audio fails to start the screen still clears and the
+simulation runs on, silently.
 
 ## Controls
 
 | | |
 |---|---|
 | move the cursor | scatter the flock |
-| click | start audio |
+| click | clear the title screen and start audio |
 | `m` | mute |
 | `f` | frame rate |
 | `g` | sonification readout — raw flock statistics next to the mapped values the audio hears |
@@ -89,7 +92,8 @@ they will make sound.
 
 | | |
 |---|---|
-| `index.html` | the page; loads everything |
+| `index.html` | the page — title screen and the tags that load everything else |
+| `favicon.svg` | the mark: one cell, a hot core, two trailing filaments |
 | `sketch.js` | setup, draw loop, controls |
 | `boids.js` | the `Boid` class — flocking rules, panic, rendering |
 | `flockstats.js` | turns the flock into five numbers the audio can use |

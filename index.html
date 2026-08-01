@@ -3,15 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Boids</title>
+    <title>NOCTILUCA</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <meta name="theme-color" content="#040a14">
     <style>
+        /* The splash borrows the simulation's palette. --water and --glow are the
+           same values as BACKGROUND and the HUD accent in sketch.js; the other two
+           are lit from the same family. */
+        :root {
+            --water: #040a14;
+            --glow: 120, 220, 255;
+            /* A shade cooler than the sim's ALARM white, so the word reads as
+               cyan-blue light rather than as lit type. */
+            --core: #c2edff;
+            /* Blue scatters furthest through water, so the widest, faintest
+               reaches of the bloom are bluer than the glow at the stroke. */
+            --bloom: 96, 178, 255;
+            --splash-font: system-ui, -apple-system, "Helvetica Neue", "Segoe UI", sans-serif;
+        }
+
         body {
             margin: 0;
             overflow: hidden;
-            background: #040a14;
+            background: var(--water);
         }
         canvas {
             display: block;
+        }
+
+        /* The simulation is already running underneath from the first frame, so
+           this is a scrim over live water rather than a page of its own. Darkest
+           where the word sits, thinning toward the edges, so NOCTILUCA lies in a
+           pool of black while the flock stays faintly alive around it. */
+        #splash {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            user-select: none;
+            -webkit-user-select: none;
+            background: radial-gradient(ellipse at 50% 46%,
+                          rgba(4, 10, 20, 0.78) 0%,
+                          rgba(4, 10, 20, 0.62) 42%,
+                          rgba(4, 10, 20, 0.34) 100%);
+            transition: opacity 1.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #splash.gone {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #splash-title {
+            margin: 0;
+            font-family: var(--splash-font);
+            font-weight: 100;
+            font-size: clamp(1.6rem, 9.2vw, 9rem);
+            letter-spacing: 0.34em;
+            /* letter-spacing appends tracking after the final A, which drags the
+               word half a tracking unit left of true centre. An indent of exactly
+               one unit shifts it back by half. The two cancel. */
+            text-indent: 0.34em;
+            white-space: nowrap;
+            color: var(--core);
+            /* Five faint stops rather than one strong blur, mirroring how the
+               boids are lit: layered translucent halos, not a hard shadow. Keep
+               the innermost stop weak — a bright tight ring at the stroke is
+               exactly what makes glowing type read as a neon tube. The light
+               should look like it is coming from inside the letter and carrying
+               a long way into the dark. */
+            text-shadow:
+                0 0  10px rgba(var(--glow), 0.28),
+                0 0  28px rgba(var(--glow), 0.20),
+                0 0  64px rgba(var(--glow), 0.15),
+                0 0 130px rgba(var(--bloom), 0.13),
+                0 0 240px rgba(var(--bloom), 0.10);
+            opacity: 0;
+            animation: splash-in 2.4s ease-out 0.3s forwards;
+            /* ease-in, not ease-out: an ease-out fade hangs for most of a second
+               at low opacity, and the word sits there as a grey fossil after its
+               glow has already gone. */
+            transition: opacity 0.9s ease-in;
+        }
+
+        #splash-prompt {
+            margin: 3.4em 0 0;
+            font-family: var(--splash-font);
+            font-weight: 300;
+            font-size: clamp(0.62rem, 1.5vw, 0.78rem);
+            letter-spacing: 0.24em;
+            text-indent: 0.24em;
+            color: rgba(var(--glow), 0.5);
+            text-shadow: 0 0 18px rgba(var(--glow), 0.18);
+            opacity: 0;
+            animation: splash-in 2s ease-out 1.4s forwards;
+            transition: opacity 0.6s ease-out;
+        }
+
+        @keyframes splash-in { to { opacity: 1; } }
+
+        @media (prefers-reduced-motion: reduce) {
+            #splash-title,
+            #splash-prompt { animation-duration: 0.01s; animation-delay: 0s; }
+            #splash { transition-duration: 0.01s; }
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
@@ -22,5 +119,48 @@
     <script src="sketch.js"></script>
 </head>
 <body>
+    <div id="splash">
+        <h1 id="splash-title">NOCTILUCA</h1>
+        <p id="splash-prompt">CLICK TO BEGIN</p>
+    </div>
+    <script>
+        (function () {
+            const splash = document.getElementById('splash');
+            const title = document.getElementById('splash-title');
+            let begun = false;
+
+            // sound is built in p5's setup(), which runs on window load. A click
+            // that lands before the CDN has finished has nothing to start yet, so
+            // keep trying for a couple of seconds rather than dropping the gesture.
+            function startAudio(tries) {
+                if (typeof sound !== 'undefined' && sound) {
+                    sound.start();
+                    return;
+                }
+                if (tries < 120) requestAnimationFrame(() => startAudio(tries + 1));
+            }
+
+            function begin() {
+                if (begun) return;
+                begun = true;
+                startAudio(0);
+                // Dismissed on the gesture, not on audio being ready: start() is
+                // async and swallows its own failures, so waiting on it could
+                // strand the splash forever.
+                title.style.opacity = '0';
+                splash.classList.add('gone');
+                splash.addEventListener('transitionend', () => {
+                    splash.style.display = 'none';
+                }, { once: true });
+            }
+
+            // pointerdown covers mouse, touch and pen at once; the sketch defines
+            // no touch handler of its own. Neither listener consumes the event, so
+            // p5's own window-level mousePressed still fires and starts the audio
+            // too — harmless, since start() is idempotent, and a useful backstop.
+            window.addEventListener('pointerdown', begin);
+            window.addEventListener('keydown', begin);
+        })();
+    </script>
 </body>
 </html>
