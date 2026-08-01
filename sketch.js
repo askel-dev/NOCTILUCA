@@ -29,6 +29,11 @@ const BACKGROUND_ALARM = [11, 18, 40];
 // Smoothed well below stats.out.panic's own smoothing so the background drifts
 // rather than tracks — a mood, not a meter.
 let bgPanicSmooth = 0;
+// Brightness of the water at the surface and at depth, as multipliers on the
+// colour above. Light falling off with depth is the reason you'd want this
+// anyway, but it is load-bearing for a second reason — see paintWater().
+const WATER_TOP = 1.35;
+const WATER_BOTTOM = 0.65;
 
 // Speed and alarm are the two things the simulation knows that the eye cannot,
 // so they drive the colour: deep teal when cruising, bright aqua at full tilt.
@@ -60,6 +65,7 @@ let audioAccum = 0;
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
+  setupRays();
   strokeCap(ROUND);
   // p5 throttles draw() to 60 by default. 240 lifts the throttle; the real
   // ceiling is the monitor refresh rate, since p5 runs on requestAnimationFrame.
@@ -90,6 +96,7 @@ function setup() {
 
 function windowResized() {
   resizeCanvas(windowWidth, windowHeight);
+  resizeRays();
 }
 
 // Null until the cursor is actually over the canvas — otherwise p5 reports
@@ -105,6 +112,28 @@ function drawPredator(predator) {
   stroke(120, 220, 255, 40);
   strokeWeight(0);
   circle(predator.x, predator.y, settings.predatorRadius * 2 * pulse);
+}
+
+// A gradient rather than a flat background(), and not only because light fades
+// with depth. A flat fill of these colours is the one thing an 8-bit canvas
+// cannot dim smoothly: BACKGROUND to BACKGROUND_ALARM spans 7 levels of red, 8
+// of green and 20 of blue, so a drifting flat fill repaints the whole screen
+// every time a channel crosses an integer — 34 times over one ramp, on the
+// three channels at unrelated moments, which reads as a hue flicker rather than
+// a fade. Smoothing harder only spaces the steps out and makes each one more
+// obvious. A gradient turns every crossing into a soft contour that slides down
+// the screen instead, and browsers dither gradient fills, so what is left
+// dissolves into noise.
+//
+// Painted through drawingContext because p5's colour objects round to whole
+// levels on the way in, which is the precision this is trying to keep.
+function paintWater(rgb) {
+  const shade = (k) => `rgb(${rgb[0] * k}, ${rgb[1] * k}, ${rgb[2] * k})`;
+  const water = drawingContext.createLinearGradient(0, 0, 0, height);
+  water.addColorStop(0, shade(WATER_TOP));
+  water.addColorStop(1, shade(WATER_BOTTOM));
+  drawingContext.fillStyle = water;
+  drawingContext.fillRect(0, 0, width, height);
 }
 
 // The sway is a function of wall-clock time rather than accumulated per-mote
@@ -182,14 +211,17 @@ function draw() {
   // teleports the whole flock.
   const dt = Math.min(deltaTime / (1000 / 60), 3);
 
-  bgPanicSmooth = lerp(bgPanicSmooth, stats.out.panic, 0.01);
-  background(
+  bgPanicSmooth = lerp(bgPanicSmooth, stats.out.panic, 1 - Math.pow(1 - 0.01, dt));
+  paintWater([
     lerp(BACKGROUND[0], BACKGROUND_ALARM[0], bgPanicSmooth),
     lerp(BACKGROUND[1], BACKGROUND_ALARM[1], bgPanicSmooth),
-    lerp(BACKGROUND[2], BACKGROUND_ALARM[2], bgPanicSmooth)
-  );
+    lerp(BACKGROUND[2], BACKGROUND_ALARM[2], bgPanicSmooth),
+  ]);
 
   drawSnow(dt);
+  // After the snow, so the shafts add light over the motes inside them and the
+  // marine snow catches the light rather than floating in front of it.
+  drawRays(bgPanicSmooth);
 
   // Everything luminous is drawn additively onto the dark water, so
   // overlapping glows brighten each other instead of painting over.
