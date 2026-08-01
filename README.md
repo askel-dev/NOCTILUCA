@@ -85,6 +85,7 @@ simulation runs on, silently.
 | move the cursor | scatter the flock |
 | click | clear the title screen and start audio |
 | `m` | mute |
+| `c` | colour menu — six palettes for the flock, or a custom one; the choice is remembered |
 | `f` | frame rate |
 | `g` | sonification readout — raw flock statistics next to the mapped values the audio hears |
 

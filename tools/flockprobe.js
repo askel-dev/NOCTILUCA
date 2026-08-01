@@ -29,6 +29,11 @@ function random(a, b) {
   if (b === undefined) return Math.random() * a;
   return a + Math.random() * (b - a);
 }
+// Stands in for p5's Perlin noise, which the speed wander reads. Only the shape
+// matters here — smooth, deterministic, centred near 0.5 — not the algorithm.
+function noise(x) {
+  return 0.5 + 0.25 * (Math.sin(x * 1.7) + Math.sin(x * 0.61 + 2.3));
+}
 
 var settings = {
   alignWeight: 1, alignRadius: 50,
@@ -36,6 +41,14 @@ var settings = {
   separationWeight: 1.5, separationRadius: 30,
   maxSpeed: 4, minSpeed: 2, maxForce: 0.08,
   predatorRadius: 100, predatorWeight: 2.5, predatorMaxForce: 0.7,
+  traitSeed: 1337, traitSigma: 0.15, traitClampLo: 0.7, traitClampHi: 1.35,
+  boidRadius: 5.5,
+  reactionMin: 0.05, reactionMax: 0.15, blindAngle: 90,
+  turnResponseTime: 0.25, maxTurnRate: 4.0, maxAngularAccel: 16, steerLeadTime: 0.25,
+  cruiseFactor: 0.6, minSpeedFactor: 0.2, maxAccelFactor: 2,
+  speedNoiseAmp: 0.25, speedNoiseRate: 0.15,
+  burstChance: 0.02, burstMin: 0.3, burstMax: 0.8,
+  coastMin: 1.5, coastMax: 3, coastFactor: 0.55,
 };
 
 load('./boids.js');
@@ -64,7 +77,8 @@ function run(label, withPredator) {
   for (var i = 0; i < 200; i++) flock.push(new Boid());
   var stats = new FlockStats();
   var SECONDS = 150;
-  var log = { order: [], energy: [], density: [], pan: [], panic: [], alarm: [] };
+  var log = { order: [], energy: [], density: [], pan: [], panic: [], alarm: [],
+              orderRaw: [], densityRaw: [] };
   var cohesions = 0, alarms = 0;
 
   for (var f = 0; f < SECONDS * 60; f++) {
@@ -91,6 +105,8 @@ function run(label, withPredator) {
       log.energy.push(stats.out.energy);
       log.density.push(stats.out.density);
       log.pan.push(stats.out.centroidX);
+      log.orderRaw.push(stats.raw.order);
+      log.densityRaw.push(stats.raw.density);
       log.panic.push(stats.raw.panic);
       log.alarm.push(stats.raw.alarm === undefined ? 0 : stats.raw.alarm);
     }
@@ -103,6 +119,10 @@ function run(label, withPredator) {
   line('pan', log.pan);
   line('panic raw', log.panic);
   line('alarm raw', log.alarm);
+  // The two AutoRange seeds in flockstats.js are read straight off these: the
+  // constructor takes (minSpan, p05, p95).
+  line('order raw', log.orderRaw);
+  line('density raw', log.densityRaw);
   print('  cohesion strikes: ' + cohesions +
         (cohesions ? '  (one per ' + (150 / cohesions).toFixed(1) + ' s)' : ''));
   print('  alarm strikes:    ' + alarms +

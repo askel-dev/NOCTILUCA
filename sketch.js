@@ -18,6 +18,66 @@ const settings = {
   predatorRadius: 100,
   predatorWeight: 2.5,
   predatorMaxForce: 0.7,
+
+  // --- Per-boid traits ---------------------------------------------------
+  // Each boid samples maxSpeed, maxTurnRate, maxAngularAccel, boidRadius and
+  // its sensing radii as base * m, where m is gaussian(1, traitSigma) clamped
+  // to [traitClampLo, traitClampHi]. The values above stay the bases. Seeded,
+  // so the same flock comes back on every reload.
+  traitSeed: 1337,
+  traitSigma: 0.15,
+  traitClampLo: 0.7,
+  traitClampHi: 1.35,
+  // Base visual size, previously hard-coded in showBody().
+  boidRadius: 5.5,
+
+  // --- Sensing -----------------------------------------------------------
+  // A boid steers on what it sensed reactionTime ago rather than on this
+  // frame's world, drawn per boid in this range. The point of the spread is
+  // that the flock cannot turn as one machine: a dodge crosses it as a wave
+  // with a ragged front instead of every boid flinching on the same frame.
+  reactionMin: 0.05,      // seconds
+  reactionMax: 0.15,
+  // Total width of the cone directly astern a boid senses nothing in, in
+  // degrees; 0 turns the blind spot off. It applies to the three flocking
+  // rules only. The predator is exempt: a fish reads a rush from behind off
+  // its lateral line rather than its eyes, and it is the one thing in the sim
+  // the viewer is holding.
+  blindAngle: 90,
+
+  // --- Turning -----------------------------------------------------------
+  // Real seconds and radians, not frame units: turning is a physical model and
+  // reads better in the units it was reasoned about in.
+  //
+  // A boid steers by angular acceleration, so it cannot snap onto a new
+  // heading. turnResponseTime is how long it would take to null out a heading
+  // error if nothing capped it; the two caps are what it can actually hold.
+  // At these values a full 180 degree reversal takes about 0.9 s — long enough
+  // to watch the animal commit to it, short enough to still read as a flinch.
+  turnResponseTime: 0.25,
+  maxTurnRate: 4.0,       // rad/s
+  maxAngularAccel: 16,    // rad/s^2
+  // How far ahead a steering force is projected to read a direction off it.
+  // See the note in updateHeading(). At 0.25 s a full-strength flocking steer
+  // asks for about 1.9 rad/s and a predator flee asks for more than the cap,
+  // which is the split that was there before: panic turns hard, flocking drifts.
+  steerLeadTime: 0.25,
+
+  // --- Speed -------------------------------------------------------------
+  // Speed is state, never set by steering. It wanders around a cruise well
+  // below maxSpeed, which leaves headroom for the bursts to actually read as
+  // bursts.
+  cruiseFactor: 0.6,      // cruiseSpeed = maxSpeed * this
+  minSpeedFactor: 0.2,    // hard floor = maxSpeed * this
+  maxAccelFactor: 2,      // maxAccel = cruiseSpeed * this, per second
+  speedNoiseAmp: 0.25,    // wander, as a fraction of cruiseSpeed
+  speedNoiseRate: 0.15,   // noise input is age * this — a slow drift, not a jitter
+  burstChance: 0.02,      // per boid per second
+  burstMin: 0.3,
+  burstMax: 0.8,
+  coastMin: 1.5,
+  coastMax: 3,
+  coastFactor: 0.55,      // target while coasting = cruiseSpeed * this
 };
 
 const BOID_COUNT = 200;
@@ -43,6 +103,111 @@ let CALM;
 let SWIFT;
 let ALARM;
 
+// --- Palettes --------------------------------------------------------------
+// A palette is only those three stops, so switching one repaints the flock and
+// leaves the water, the rays and the marine snow alone — the flock stays the
+// lit thing in a dark ocean whatever colour it is.
+//
+// Every palette keeps the same shape as the default: the calm stop is dark and
+// saturated, the swift stop is brighter and shifted a little around the wheel
+// so acceleration reads as a hue change and not just a gain, and the alarm stop
+// is nearly white with the hue only tinting it. Break that shape and speed
+// stops being legible.
+const PALETTES = [
+  { name: 'Noctiluca', calm: [45, 150, 170], swift: [120, 240, 215], alarm: [215, 250, 255] },
+  { name: 'Ember',     calm: [150, 70, 30],  swift: [245, 175, 80],  alarm: [255, 240, 215] },
+  { name: 'Abyss',     calm: [70, 60, 175],  swift: [190, 110, 240], alarm: [240, 225, 255] },
+  { name: 'Verdant',   calm: [50, 140, 80],  swift: [175, 240, 110], alarm: [240, 255, 220] },
+  { name: 'Ghost',     calm: [95, 115, 145], swift: [185, 210, 235], alarm: [250, 252, 255] },
+  { name: 'Coral',     calm: [165, 60, 90],  swift: [255, 140, 140], alarm: [255, 230, 235] },
+];
+
+// Where the last choice is kept, so a palette survives a reload the way the
+// seeded flock does.
+const PALETTE_STORE = 'noctiluca.palette';
+
+function applyPalette(rgb) {
+  CALM = color(rgb.calm[0], rgb.calm[1], rgb.calm[2]);
+  SWIFT = color(rgb.swift[0], rgb.swift[1], rgb.swift[2]);
+  ALARM = color(rgb.alarm[0], rgb.alarm[1], rgb.alarm[2]);
+}
+
+// A custom colour arrives as one hex — the calm stop — and the other two are
+// derived from it in HSL so the ramp keeps the default's proportions: the same
+// -24 degree hue swing into swift, the same climb in saturation and lightness.
+// Fed the default teal, this reproduces SWIFT and ALARM to within a level or
+// two, which is the check that the numbers below are the right ones.
+function rampFromHex(hex) {
+  const [h, s, l] = rgbToHsl(hexToRgb(hex));
+  // A grey has no hue to swing — its h is whatever fell out of the conversion,
+  // and floor a grey's saturation and you get a flock tinted red by an accident
+  // of the maths. Below a nominal saturation, keep it a true silver instead.
+  const sat = s < 0.05 ? 0 : Math.max(s, 0.12);
+  return {
+    calm: hslToRgb((h + 360) % 360, sat, Math.min(Math.max(l, 0.22), 0.55)),
+    swift: hslToRgb((h - 24 + 360) % 360, Math.min(sat * 1.4, 0.82), 0.71),
+    alarm: hslToRgb(h, Math.min(sat * 1.7, 1), 0.92),
+  };
+}
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function rgbToHsl([r, g, b]) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = ((g - b) / d) % 6;
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [((h * 60) + 360) % 360, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const t = h / 60;
+  let rgb;
+  if (t < 1) rgb = [c, x, 0];
+  else if (t < 2) rgb = [x, c, 0];
+  else if (t < 3) rgb = [0, c, x];
+  else if (t < 4) rgb = [0, x, c];
+  else if (t < 5) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+  return rgb.map((v) => Math.round((v + m) * 255));
+}
+
+// Called by the menu in index.html. A choice is either a palette name or a hex
+// string; both round-trip through localStorage as themselves.
+function setPalette(choice) {
+  const preset = PALETTES.find((p) => p.name === choice);
+  // A stored value can outlive the palette it names — a renamed preset would
+  // otherwise fall through to the hex branch and parse as NaN.
+  if (!preset && !/^#[0-9a-f]{6}$/i.test(choice)) return setPalette(PALETTES[0].name);
+  applyPalette(preset || rampFromHex(choice));
+  try {
+    localStorage.setItem(PALETTE_STORE, choice);
+  } catch (e) {
+    // Private browsing, or storage is full. The palette still applies.
+  }
+}
+
+function storedPalette() {
+  try {
+    return localStorage.getItem(PALETTE_STORE);
+  } catch (e) {
+    return null;
+  }
+}
+
 // Marine snow: faint motes sinking through the water column behind the flock.
 const SNOW_COUNT = 80;
 const snow = [];
@@ -66,14 +231,15 @@ let audioAccum = 0;
 function setup() {
   createCanvas(windowWidth, windowHeight);
   setupRays();
+  // The speed wander reads p5's Perlin noise; seed it so a run is reproducible
+  // in the same way the traits are.
+  noiseSeed(settings.traitSeed);
   strokeCap(ROUND);
   // p5 throttles draw() to 60 by default. 240 lifts the throttle; the real
   // ceiling is the monitor refresh rate, since p5 runs on requestAnimationFrame.
   frameRate(240);
 
-  CALM = color(45, 150, 170);
-  SWIFT = color(120, 240, 215);
-  ALARM = color(215, 250, 255);
+  setPalette(storedPalette() || PALETTES[0].name);
 
   for (let i = 0; i < SNOW_COUNT; i++) {
     snow.push({
@@ -153,6 +319,8 @@ function drawSnow(dt) {
 function keyPressed() {
   sound.start();
   if (key === 'f' || key === 'F') showFps = !showFps;
+  // The menu is HTML, defined in index.html; the sketch only knows the key.
+  if ((key === 'c' || key === 'C') && typeof togglePalette === 'function') togglePalette();
   if (key === 'g' || key === 'G') showStats = !showStats;
   if (key === 'm' || key === 'M') {
     soundMuted = !soundMuted;

@@ -10,16 +10,20 @@
 // Three properties of this simulation break the obvious versions of these
 // numbers, and all three are handled here rather than in the audio:
 //
-//   * Speed is clamped to [minSpeed, maxSpeed] and every steering force in
-//     steerTowards() starts by setting the desired magnitude to maxSpeed — so
-//     all three rules continuously push each boid's speed toward the ceiling.
-//     Averaged over 200 boids, raw mean speed sits at 0.766 and moves 0.08
-//     units/s. Auto-ranging it turned that wiggle into full-range swings, so
-//     energy is now mapped through a fixed divisor instead.
+//   * Speed is per-boid state now, not a quantity steering pushes to the
+//     ceiling: each boid cruises at 0.6 of its own maxSpeed and darts off it
+//     occasionally. Averaged over 200 boids that individual variety cancels —
+//     only about one boid in a hundred is bursting at any moment — so raw mean
+//     haste sits at 0.187 and moves only 0.019 units/s, flatter than the 0.766
+//     and 0.08 it read before. Auto-ranging a signal that flat turns it into
+//     noise, so energy is still mapped through a fixed divisor.
 //
-//   * Order is pinned high — median 0.960, and it never fell below 0.869 in
-//     150 s. Alignment carries almost no information in this flock, so it only
-//     shapes timbre and the cohesion detector reads density instead.
+//   * Order is no longer pinned high. Angular inertia stops a boid snapping
+//     onto the flock's heading, so alignment is now a live channel: median
+//     0.644 with a 0.505-0.754 spread undisturbed, falling as low as 0.049
+//     when the cursor scatters the flock. It used to sit at 0.960 and never
+//     drop below 0.869. The cohesion detector still reads density, though — a
+//     flock pulling tight is what cohesion means.
 //
 //   * edges() wraps the canvas. A plain mean of position.x is meaningless on a
 //     torus: it pins near width/2 for a spread flock and jumps discontinuously
@@ -28,11 +32,16 @@
 //     is spread the angle is not just useless but unstable, so it collapses to
 //     centre instead of jittering.
 
-// Cohesion is read off density, not order. Measured over 150 s of this sim,
-// order sits at 0.96 with a 5-95 spread of 0.909-0.986: these boids are almost
-// always aligned, so alignment carries almost no information. Density swings
-// 20.8-45.2 over the same run, and a flock pulling tight is what "cohesion"
-// means anyway.
+// Cohesion is read off density, not order. Density swings 9.96-21.19 over 150 s
+// of this sim, and a flock pulling tight is what "cohesion" means anyway.
+//
+// Those figures are half what they were before the boids were given angular
+// inertia: a flock that cannot snap onto a heading also cannot pull as tight,
+// so the whole density channel moved down and its travel halved, 5.41 to 2.67
+// units/s. That is a change in the flock, not a fault in it — but every
+// constant below had been measured against the old range, and left alone they
+// read the new signal as a flat line near the floor. See the seeds in the
+// constructor: mis-seeded, this channel fired one chime per 20-140 s.
 //
 // Detected as a rise above a falling floor, the same shape as the alarm below,
 // and for the same reason. This used to be a level crossing with hysteresis
@@ -46,25 +55,46 @@
 // the thresholds sat.
 //
 // Against a rising floor, every fresh tightening is its own event, including
-// the small ones partway up a long climb — one per 3.0 s undisturbed, 2.8 s
+// the small ones partway up a long climb — one per 3.6 s undisturbed, 3.4 s
 // with a cursor in the flock, measured the same way. A flock that is merely
 // dense and staying that way is silent, since nothing is rising.
-const COHESION_RISE = 0.12;     // how far density must climb above its floor
+//
+// The rise came down from 0.12 with the inertia change, because the density
+// channel it watches now travels half as fast. Sweeping it on recorded density
+// showed why there is no point going further: 0.12 gives one per 4.3 s, 0.09
+// one per 3.6 s, and 0.07 only one per 3.3 s. The rate is limited by how often
+// the flock actually tightens, not by where the threshold sits, so anything
+// below this buys nothing and starts calling noise an event.
+const COHESION_RISE = 0.09;     // how far density must climb above its floor
 const COHESION_MIN = 0.28;      // no chimes off a genuinely loose flock
 const COHESION_FLOOR_TAU = 2;   // seconds for the floor to catch up
 const COHESION_REFRACTORY = 1;  // seconds
 
 // Raw mean haste, straight through, with no auto-ranging. Measured spread is
-// 0.700-0.803 and it travels 0.08 units/s; auto-ranged it travelled 0.27 and
+// 0.165-0.207 and it travels 0.019 units/s; auto-ranged it travelled 0.27 and
 // reached 0.005, which is why the wind sounded random and kept dropping out.
 // A fixed divisor keeps it a near-constant bed — and still falls to silence if
 // the flock genuinely stalls, since raw haste is anchored at zero.
-const ENERGY_CEILING = 0.85;
+//
+// The divisor dropped from 0.85 with the inertia change. Boids used to be
+// pushed against their speed ceiling continuously and read 0.766; they now
+// cruise at 0.6 of it and read 0.187. That is not just a quieter wind: bell
+// velocity is 0.2 + energy^0.8 * 0.6, so at the old divisor every chime came
+// out at 0.38 instead of 0.75 — half strength. This puts p50 back at 0.85
+// mapped, with p95 just under the clip.
+//
+// Normalising each boid against its own speed band instead was tried and is
+// worse: it reads 0.493 but travels 0.011, flatter still, because dividing by
+// each boid's own range removes exactly the spread between boids that the
+// per-boid traits added.
+const ENERGY_CEILING = 0.22;
 
 // Mean panic is small even when the cursor is ploughing through the flock:
 // only the boids inside predatorRadius are alarmed at all, so it peaked at
-// 0.112 over a 150 s sweep and sat at 0.036 for p95. Fed in raw it moved the
+// 0.087 over a 150 s sweep and sat at 0.038 for p95. Fed in raw it moved the
 // sound by about 6%. This divisor puts an ordinary incursion near 0.6.
+// (Inertia barely touched this channel — it read 0.112 and 0.036 before — so
+// the divisor is unchanged.)
 const PANIC_CEILING = 0.06;
 
 // A cursor pushing into the flock is an event, not a level. Detected as a rise
@@ -157,8 +187,31 @@ class FlockStats {
         this.time = 0;
 
         // Seeds are the p05/p95 measured by tools/flockprobe.js on this sim.
-        this.rangeOrder = new AutoRange(0.1, 0.78, 0.99);
-        this.rangeDensity = new AutoRange(6, 20.7, 45.2);
+        //
+        // These matter more than they look. The tracker does adapt, but over a
+        // 15 s time constant, so a bad seed is what the first minute of
+        // listening actually sounds like — and the cohesion detector reads a
+        // rise in the mapped value, which a seed far above the signal flattens
+        // to nothing. Left at the pre-inertia density seed of 20.7-45.2 the
+        // mapped channel sat at p50 0.06 and the chimes fell to one per 20-140 s,
+        // wandering that widely from run to run. Reseeded they are steady at
+        // one per 3.6 s.
+        //
+        // Re-measured for the blind spot and the reaction latency, as the
+        // median of four probe runs rather than one: the spawn is unseeded, and
+        // single runs put density p95 anywhere from 15.8 to 19.2. Left at the
+        // old seeds both mapped channels sat pinned to a rail.
+        //
+        // Order fell 0.65 to 0.53 and density 13.3 to 11.4, but the two changes
+        // are not one change. Latency is what loosens the flock: alone it takes
+        // density to 10.2 with the counting cone untouched, and order to 0.45,
+        // worse than the two together. The blind spot pulls the other way. It
+        // counts a quarter less disc, so occlusion alone would read 10.0 and it
+        // reads 11.5 — the flock is tighter for it, in trains rather than
+        // blobs, and its density p95 swings 16 to 29 run to run where the old
+        // flock's sat at 20.
+        this.rangeOrder = new AutoRange(0.1, 0.23, 0.72);
+        this.rangeDensity = new AutoRange(6, 7.9, 16.4);
 
         // Light smoothing only — the audio engine ramps over 180 ms of its own,
         // and smoothing twice just makes the flock feel sluggish.

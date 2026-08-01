@@ -105,6 +105,144 @@
 
         @keyframes splash-in { to { opacity: 1; } }
 
+        /* --- Palette menu -------------------------------------------------
+           Lit the same way as the splash: faint cyan type on near-black, no
+           solid chrome. It sits over live water, so anything opaque enough to
+           read as a panel would punch a hole in the ocean. */
+        #palette {
+            position: fixed;
+            top: 18px;
+            right: 18px;
+            z-index: 40;
+            font-family: var(--splash-font);
+            /* Held back until the splash lifts — the menu has no business
+               showing through the scrim. */
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1s ease-out;
+        }
+        #palette.awake {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        #palette button {
+            font: inherit;
+            background: none;
+            border: 0;
+            padding: 0;
+            cursor: pointer;
+            color: rgba(var(--glow), 0.45);
+        }
+        #palette button:hover,
+        #palette button:focus-visible {
+            color: rgba(var(--glow), 0.9);
+        }
+
+        #palette-toggle {
+            display: flex;
+            align-items: center;
+            gap: 0.7em;
+            margin-left: auto;
+            font-size: 0.62rem;
+            font-weight: 300;
+            letter-spacing: 0.24em;
+        }
+        /* The dot is the flock's own swift colour, so the control shows what it
+           controls without a label for it. */
+        #palette-toggle .dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--swatch, #78f0d7);
+            box-shadow: 0 0 10px var(--swatch, #78f0d7);
+        }
+
+        #palette-panel {
+            margin-top: 14px;
+            padding: 12px 6px;
+            min-width: 172px;
+            background: rgba(4, 10, 20, 0.72);
+            border: 1px solid rgba(var(--glow), 0.13);
+            border-radius: 3px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            display: flex;
+            flex-direction: column;
+            transform-origin: top right;
+            transition: opacity 0.35s ease-out, transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        /* visibility rather than display, so the panel can fade instead of
+           vanishing, and so its buttons drop out of the tab order while shut. */
+        #palette.shut #palette-panel {
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-6px) scale(0.98);
+            transition: opacity 0.25s ease-in, transform 0.25s ease-in, visibility 0s linear 0.25s;
+        }
+
+        #palette-panel button,
+        #palette-panel label {
+            display: flex;
+            align-items: center;
+            gap: 0.85em;
+            /* No width: the panel is a column flexbox, so rows stretch to it on
+               their own. width:100% here would add the padding on top of the
+               panel's width and overflow it — there is no border-box reset. */
+            padding: 7px 12px;
+            font-size: 0.6rem;
+            font-weight: 300;
+            letter-spacing: 0.2em;
+            color: rgba(var(--glow), 0.45);
+            cursor: pointer;
+        }
+        #palette-panel button:hover {
+            background: rgba(var(--glow), 0.06);
+        }
+        #palette-panel button[aria-current="true"] {
+            color: var(--core);
+        }
+
+        /* Three stops of the ramp side by side: calm, swift, alarm. The bar is
+           the palette's whole description — the name is only a handle. */
+        .ramp {
+            flex: none;
+            width: 30px;
+            height: 8px;
+            border-radius: 1px;
+            box-shadow: 0 0 9px -1px currentColor;
+        }
+
+        #palette-panel hr {
+            margin: 8px 12px;
+            border: 0;
+            border-top: 1px solid rgba(var(--glow), 0.1);
+        }
+
+        /* The native swatch, shrunk to the same 30x8 bar as the presets so the
+           custom row lines up with them. */
+        #palette-custom {
+            flex: none;
+            width: 30px;
+            height: 8px;
+            padding: 0;
+            border: 0;
+            border-radius: 1px;
+            background: none;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        #palette-custom::-webkit-color-swatch-wrapper { padding: 0; }
+        #palette-custom::-webkit-color-swatch { border: 0; border-radius: 1px; }
+        #palette-custom::-moz-color-swatch { border: 0; border-radius: 1px; }
+        #palette-panel label:hover { background: rgba(var(--glow), 0.06); }
+
+        @media (prefers-reduced-motion: reduce) {
+            #palette,
+            #palette-panel { transition-duration: 0.01s; }
+        }
+
         @media (prefers-reduced-motion: reduce) {
             #splash-title,
             #splash-prompt { animation-duration: 0.01s; animation-delay: 0s; }
@@ -123,6 +261,21 @@
     <div id="splash">
         <h1 id="splash-title">NOCTILUCA</h1>
         <p id="splash-prompt">CLICK TO BEGIN</p>
+    </div>
+
+    <div id="palette" class="shut">
+        <button id="palette-toggle" type="button" aria-expanded="false" aria-controls="palette-panel">
+            <span class="dot" aria-hidden="true"></span>COLOUR
+        </button>
+        <div id="palette-panel" role="group" aria-label="Boid colour">
+            <!-- Preset rows are built from PALETTES in sketch.js: one source of
+                 truth for the colours, so a palette added there shows up here. -->
+            <hr>
+            <label>
+                <input type="color" id="palette-custom" value="#2d96aa">
+                CUSTOM
+            </label>
+        </div>
     </div>
     <script>
         (function () {
@@ -150,6 +303,7 @@
                 // strand the splash forever.
                 title.style.opacity = '0';
                 splash.classList.add('gone');
+                document.getElementById('palette').classList.add('awake');
                 splash.addEventListener('transitionend', () => {
                     splash.style.display = 'none';
                 }, { once: true });
@@ -161,6 +315,79 @@
             // too — harmless, since start() is idempotent, and a useful backstop.
             window.addEventListener('pointerdown', begin);
             window.addEventListener('keydown', begin);
+        })();
+
+        // The palette menu. The colours themselves live in sketch.js — this only
+        // builds rows out of PALETTES and hands a choice back to setPalette().
+        (function () {
+            const root = document.getElementById('palette');
+            const toggle = document.getElementById('palette-toggle');
+            const panel = document.getElementById('palette-panel');
+            const custom = document.getElementById('palette-custom');
+            const dot = toggle.querySelector('.dot');
+            const rule = panel.querySelector('hr');
+
+            const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+
+            PALETTES.forEach((p) => {
+                const row = document.createElement('button');
+                row.type = 'button';
+                row.dataset.choice = p.name;
+
+                const bar = document.createElement('span');
+                bar.className = 'ramp';
+                bar.style.background =
+                    `linear-gradient(90deg, ${rgb(p.calm)}, ${rgb(p.swift)}, ${rgb(p.alarm)})`;
+                // currentColor drives the swatch's own glow in the stylesheet.
+                bar.style.color = rgb(p.swift);
+
+                row.append(bar, p.name.toUpperCase());
+                row.addEventListener('click', () => choose(p.name));
+                panel.insertBefore(row, rule);
+            });
+
+            function choose(choice) {
+                setPalette(choice);
+                mark(choice);
+            }
+
+            function mark(choice) {
+                const preset = PALETTES.find((p) => p.name === choice);
+                for (const row of panel.querySelectorAll('button')) {
+                    row.setAttribute('aria-current', String(row.dataset.choice === choice));
+                }
+                const stops = preset || rampFromHex(choice);
+                dot.style.setProperty('--swatch', rgb(stops.swift));
+                if (!preset) custom.value = choice;
+            }
+
+            function open(next) {
+                root.classList.toggle('shut', !next);
+                toggle.setAttribute('aria-expanded', String(next));
+            }
+
+            // Named on window so the sketch's keyPressed can reach it for 'c'.
+            window.togglePalette = () => open(root.classList.contains('shut'));
+
+            toggle.addEventListener('click', (e) => {
+                e.stopPropagation();
+                window.togglePalette();
+            });
+            // Fires on every drag of the native picker, so the flock recolours
+            // live while you choose rather than on commit.
+            custom.addEventListener('input', () => choose(custom.value));
+
+            window.addEventListener('pointerdown', (e) => {
+                if (!root.contains(e.target)) open(false);
+            });
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') open(false);
+            });
+
+            const stored = storedPalette();
+            const known = stored
+                && (PALETTES.some((p) => p.name === stored) || /^#[0-9a-f]{6}$/i.test(stored));
+            mark(known ? stored : PALETTES[0].name);
         })();
     </script>
 </body>
