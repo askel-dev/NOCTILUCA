@@ -25,6 +25,9 @@ class Boid {
         // throbbing in unison.
         this.pulsePhase = random(TWO_PI);
         this.panic = 0;
+        // Neighbours inside cohesionRadius, recorded by flock() for the
+        // sonification. See the note there.
+        this.neighbours = 0;
         // Trails are redrawn from this history onto a cleared canvas each frame
         // rather than being left to decay in place. Decaying in place is the
         // usual trick and it does not work here: in 8-bit, fading a mark that is
@@ -150,6 +153,11 @@ class Boid {
                 separationTotal++;
             }
         }
+
+        // Handed to FlockStats as the density signal. Kept here because the
+        // count is a free by-product of a scan that has already run — finding
+        // it again would mean a second O(n^2) pass purely for the audio.
+        this.neighbours = cohesionTotal;
 
         if (alignTotal > 0) {
             alignment.div(alignTotal);

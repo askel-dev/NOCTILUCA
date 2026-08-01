@@ -1,0 +1,747 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Flock Sound Sandbox</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+<script>if(!window.Tone){document.write('<script src="https://unpkg.com/tone@14.8.49/build/Tone.js"><\/script>');}</script>
+<style>
+  :root{
+    --bg:#0a0c0f; --panel:#11151a; --line:#1e252d; --ink:#dfe7ee;
+    --dim:#7b8894; --accent:#7fd6c1; --warm:#e0b56a; --hot:#e0776a;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---- gate ---- */
+  #gate{
+    position:fixed; inset:0; z-index:50; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; cursor:pointer;
+    background:radial-gradient(ellipse at 50% 40%,#131a20 0%,#0a0c0f 70%);
+    transition:opacity .5s; text-align:center; padding:24px;
+  }
+  #gate h1{font-size:15px;letter-spacing:.34em;margin:0;font-weight:500}
+  #gate p{color:var(--dim);max-width:44ch;margin:0;font-size:12px}
+  #gateBtn{
+    margin-top:10px;border:1px solid var(--accent);color:var(--accent);
+    background:transparent;padding:14px 34px;letter-spacing:.24em;font:inherit;
+    border-radius:2px;cursor:pointer;transition:.2s;
+  }
+  #gateBtn:hover{background:var(--accent);color:#0a0c0f}
+  #gate.hidden{opacity:0;pointer-events:none}
+
+  /* ---- layout ---- */
+  main{max-width:1000px;margin:0 auto;padding:26px 20px 60px}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+  header h2{font-size:13px;letter-spacing:.3em;margin:0;font-weight:500}
+  header .sub{color:var(--dim);font-size:11px}
+
+  .grid{display:grid;grid-template-columns:1fr 300px;gap:18px}
+  @media(max-width:820px){.grid{grid-template-columns:1fr}}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:3px;padding:16px}
+  .panel h3{
+    font-size:10px;letter-spacing:.26em;color:var(--dim);
+    margin:0 0 14px;font-weight:500;text-transform:uppercase;
+  }
+
+  /* ---- presets ---- */
+  .presets{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media(max-width:460px){.presets{grid-template-columns:repeat(2,1fr)}}
+  .preset.lead{border-color:#2c3a44}
+  .preset{
+    background:#0d1116;border:1px solid var(--line);color:var(--dim);
+    padding:12px 8px;border-radius:2px;cursor:pointer;font:inherit;
+    letter-spacing:.18em;font-size:11px;transition:.15s;text-align:center;
+  }
+  .preset:hover{border-color:#33404c;color:var(--ink)}
+  .preset.on{border-color:var(--accent);color:var(--accent);background:#0f1a19}
+  .preset small{display:block;letter-spacing:0;font-size:9px;opacity:.6;margin-top:5px}
+
+  /* ---- sliders ---- */
+  .ctl{margin:16px 0}
+  .ctl .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .ctl label{letter-spacing:.16em;font-size:11px}
+  .ctl .val{color:var(--accent);font-variant-numeric:tabular-nums;font-size:11px}
+  .ctl .hint{color:var(--dim);font-size:10px;letter-spacing:.02em}
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:22px;
+    background:transparent;cursor:pointer;margin:0;display:block;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:2px;background:#28323c;border-radius:2px}
+  input[type=range]::-moz-range-track{height:2px;background:#28323c;border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--accent);margin-top:-5.5px;border:none;
+  }
+  input[type=range]::-moz-range-thumb{
+    width:13px;height:13px;border-radius:50%;background:var(--accent);border:none;
+  }
+
+  /* ---- buttons ---- */
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
+  button.act{
+    flex:1;min-width:130px;background:#0d1116;border:1px solid var(--line);
+    color:var(--ink);padding:11px 12px;border-radius:2px;cursor:pointer;
+    font:inherit;font-size:11px;letter-spacing:.16em;transition:.15s;
+  }
+  button.act:hover{border-color:var(--accent);color:var(--accent)}
+  button.act.pulse{border-color:var(--warm);color:var(--warm)}
+  button.act.on{border-color:var(--accent);color:var(--accent);background:#0f1a19}
+  button.act:disabled{opacity:.3;cursor:not-allowed}
+
+  /* ---- meter + readout ---- */
+  .meterwrap{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .meter{flex:1;height:4px;background:#1a2129;border-radius:2px;overflow:hidden}
+  .meter i{display:block;height:100%;width:0;background:var(--accent);transition:width .06s linear}
+  .meter i.hot{background:var(--hot)}
+  .silent{font-size:10px;letter-spacing:.2em;color:var(--dim)}
+  .silent.on{color:var(--accent)}
+
+  dl.map{margin:0;font-size:11px}
+  dl.map div{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid #171d24}
+  dl.map div:last-child{border-bottom:none}
+  dl.map dt{color:var(--dim);letter-spacing:.1em;white-space:nowrap}
+  dl.map dd{margin:0;text-align:right;color:var(--ink);font-size:10px;line-height:1.4}
+
+  .rules{margin:0;padding-left:15px;color:var(--dim);font-size:10.5px;line-height:1.75}
+  .rules b{color:var(--ink);font-weight:500}
+  .chk{display:flex;align-items:center;gap:9px;margin-top:14px;color:var(--dim);font-size:10.5px;cursor:pointer}
+  .chk input{accent-color:var(--accent);cursor:pointer}
+  footer{margin-top:20px;color:#4d5a66;font-size:10px;letter-spacing:.04em}
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h1>FLOCK SOUND SANDBOX</h1>
+  <p>An audition rig for boid sonification. Nothing sounds unless you move something.</p>
+  <button id="gateBtn">TAP TO BEGIN</button>
+  <p id="gateStatus" style="min-height:1.4em"></p>
+</div>
+
+<main>
+  <header>
+    <h2>FLOCK SOUND SANDBOX</h2>
+    <span class="sub">no transport &middot; no loops &middot; input-caused sound only</span>
+  </header>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <h3>Preset</h3>
+        <div class="presets">
+          <button class="preset lead" data-p="flock">FLOCK<small>wind + bells</small></button>
+          <button class="preset lead" data-p="wind">WIND<small>calm bed</small></button>
+          <button class="preset lead" data-p="bells">BELLS<small>events only</small></button>
+          <button class="preset" data-p="breath">BREATH<small>noise only</small></button>
+          <button class="preset" data-p="strings">STRINGS<small>one voice</small></button>
+          <button class="preset" data-p="hybrid">HYBRID<small>bed+voice+bells</small></button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Simulated flock state</h3>
+
+        <div class="ctl">
+          <div class="row"><label>ORDER</label><span class="val" id="v-order">0.50</span></div>
+          <input type="range" id="s-order" min="0" max="1" step="0.001" value="0.5">
+          <div class="hint">alignment &mdash; 0 scattered, 1 perfectly aligned</div>
+        </div>
+
+        <div class="ctl">
+          <div class="row"><label>ENERGY</label><span class="val" id="v-energy">0.35</span></div>
+          <input type="range" id="s-energy" min="0" max="1" step="0.001" value="0.35">
+          <div class="hint">kinetic energy &mdash; drives amplitude + brightness</div>
+        </div>
+
+        <div class="ctl">
+          <div class="row"><label>DENSITY</label><span class="val" id="v-density">0.50</span></div>
+          <input type="range" id="s-density" min="0" max="1" step="0.001" value="0.5">
+          <div class="hint">cluster tightness &mdash; body, resonance, event size</div>
+        </div>
+
+        <div class="ctl">
+          <div class="row"><label>CENTROID X</label><span class="val" id="v-centroidX">0.00</span></div>
+          <input type="range" id="s-centroidX" min="-1" max="1" step="0.001" value="0">
+          <div class="hint">flock position &mdash; stereo pan</div>
+        </div>
+
+        <div class="btns">
+          <button class="act" id="btn-ramp">SCATTER / COHERE &middot; 3s</button>
+          <button class="act pulse" id="btn-event">FLOCK EVENT &middot; strike</button>
+          <button class="act" id="btn-drift">SIM DRIFT &middot; OFF</button>
+        </div>
+
+        <label class="chk">
+          <input type="checkbox" id="autoEvent" checked>
+          auto-strike when order crosses 0.85 upward (a real cohesion event, not a clock)
+        </label>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Rig</h3>
+        <div class="ctl">
+          <div class="row"><label>SMOOTHING</label><span class="val" id="v-smooth">180 ms</span></div>
+          <input type="range" id="s-smooth" min="100" max="300" step="5" value="180">
+        </div>
+        <div class="ctl">
+          <div class="row"><label>MASTER</label><span class="val" id="v-master">0.80</span></div>
+          <input type="range" id="s-master" min="0" max="1" step="0.01" value="0.8">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h3>Output</h3>
+        <div class="meterwrap">
+          <div class="meter"><i id="meterbar"></i></div>
+          <span class="silent" id="silentflag">&mdash;</span>
+        </div>
+        <dl class="map">
+          <div><dt>BELL VOICES</dt><dd id="r-voices">0 / 12</dd></div>
+          <div><dt>DRONE VOICES</dt><dd id="r-drone">0</dd></div>
+          <div><dt>STRING PITCH</dt><dd id="r-pitch">&mdash;</dd></div>
+          <div><dt>CUTOFF</dt><dd id="r-cut">&mdash;</dd></div>
+        </dl>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Active mapping</h3>
+        <dl class="map" id="mapping"></dl>
+      </div>
+
+      <div class="panel" style="margin-top:18px">
+        <h3>Enforced</h3>
+        <ul class="rules">
+          <li><b>No Tone.Transport.</b> Never started, never referenced.</li>
+          <li><b>No loops / sequences / tempo.</b> Every sound traces to a slider move or a button press.</li>
+          <li><b>No LFOs.</b> The shimmer in STRINGS is beating between detuned oscillators &mdash; detune is driven by <i>order</i>, so it slows to nothing as the flock aligns.</li>
+          <li><b>Harmony shifts only with input.</b> String pitch glides with order; bell register follows density.</li>
+          <li><b>Silence at rest.</b> energy&nbsp;=&nbsp;0 zeroes all drone gain outright.</li>
+          <li><b>Attacks 200&ndash;800&nbsp;ms.</b> No transients anywhere, bells included.</li>
+          <li><b>SIM DRIFT is fake input, not a modulator.</b> It random-walks the four sliders &mdash; you can watch them move &mdash; standing in for live boid data. The engine stays reactive; delete it when the real sim is wired in.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <footer>keys &mdash; 1..6 presets &middot; space flock event &middot; r scatter/cohere &middot; d sim drift</footer>
+</main>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------ *
+ *  STATE  (stands in for what the boids sim would push in)
+ * ------------------------------------------------------------------ */
+const S = { order:0.5, energy:0.35, density:0.5, centroidX:0, smooth:180, master:0.8 };
+const MAX_VOICES = 12;
+const PENT = ['A2','C3','D3','E3','G3','A3','C4','D4','E4','G4','A4','C5','D5','E5','G5'];
+
+/* WIND brightness ceiling. Past this energy the wind gets louder and wider but
+   not brighter — above it the top end just turned to hiss. Raise to 1 to undo. */
+const WIND_ENERGY_CAP = 0.30;
+
+let A = null;              // audio graph, built after the gate
+let preset = 'flock';
+let prevOrder = S.order;
+let activeBells = 0;
+let rampRAF = null;
+
+/* preset -> bus levels. Bells always audible when the preset includes them;
+   they simply make no sound until an event happens. */
+const PRESETS = {
+  flock  : { breath:0.00, wind:0.72, string:0.00, bell:1.00 },
+  wind   : { breath:0.00, wind:1.00, string:0.00, bell:0.00 },
+  bells  : { breath:0.00, wind:0.00, string:0.00, bell:1.00 },
+  breath : { breath:1.00, wind:0.00, string:0.00, bell:0.00 },
+  strings: { breath:0.00, wind:0.00, string:1.00, bell:0.00 },
+  hybrid : { breath:0.50, wind:0.00, string:0.85, bell:1.00 }
+};
+
+/* How far the wind steps back when a bell lands, as a fraction of its bus level.
+   0.28 is about -2.8 dB. Set to 0 for a plain sum. */
+const DUCK_DEPTH = 0.28;
+
+const MAPPING = {
+  flock: [
+    ['BED','wind at 72 % &mdash; dark, capped, never masks a bell'],
+    ['STRIKE','bells on cohesion events only'],
+    ['COUPLING','order raises the wind valley <i>and</i> fires the strike'],
+    ['DUCK','wind steps back ~2.8 dB for ~2 s under each bell'],
+    ['CENTROID','one pan across both &mdash; they move as one body']
+  ],
+  breath: [
+    ['ENERGY','amplitude + lowpass 300 Hz &rarr; 6 kHz'],
+    ['DENSITY','grain thickness: band resonance + low bed'],
+    ['ORDER','resonant focus sweeps 380 Hz &rarr; 3.2 kHz'],
+    ['CENTROID','stereo pan'],
+    ['EVENTS','none &mdash; pure texture']
+  ],
+  wind: [
+    ['ENERGY','amplitude, full range &mdash; louder, not brighter'],
+    ['CEILING','cutoff 300 Hz &rarr; 1.7 kHz, frozen above energy 0.30'],
+    ['DENSITY','low body weight + valley resonance level'],
+    ['ORDER','valley centre 420 Hz &rarr; 1.9 kHz, Q stays under 4'],
+    ['CENTROID','stereo pan over a decorrelated L/R bed'],
+    ['GUSTING','none by itself &mdash; turn on SIM DRIFT']
+  ],
+  strings: [
+    ['ENERGY','bow pressure: amplitude, cutoff, scrape noise'],
+    ['ORDER','pitch A2 &rarr; E3, detune 46 &rarr; 3 cents'],
+    ['DENSITY','sub-octave body + filter resonance'],
+    ['CENTROID','stereo pan'],
+    ['EVENTS','none &mdash; one continuous voice']
+  ],
+  bells: [
+    ['EVENTS','the only sound source'],
+    ['DENSITY','notes per strike (1&ndash;4) + register'],
+    ['ORDER','interval spread &mdash; tight when aligned'],
+    ['ENERGY','strike velocity + bell brightness'],
+    ['CENTROID','stereo pan']
+  ],
+  hybrid: [
+    ['BED','breath at 50 % &mdash; energy drives it'],
+    ['VOICE','one string, pitch from order'],
+    ['STRIKE','bells on cohesion events only'],
+    ['DENSITY','thickness across all three'],
+    ['CENTROID','stereo pan']
+  ]
+};
+
+/* ------------------------------------------------------------------ *
+ *  AUDIO GRAPH
+ * ------------------------------------------------------------------ */
+async function buildAudio(status){
+  status('starting audio context...');
+  await Tone.start();
+  Tone.getContext().lookAhead = 0.03;   // tight enough that slider moves feel immediate
+
+  /* --- master --- */
+  const limiter     = new Tone.Limiter(-2).toDestination();
+  const masterGain  = new Tone.Gain(S.master).connect(limiter);
+  const masterFilter= new Tone.Filter({type:'lowpass', frequency:5000, rolloff:-12}).connect(masterGain);
+  const meter       = new Tone.Meter({smoothing:0.85});
+  masterGain.connect(meter);
+
+  status('generating 6.5 s hall impulse...');
+  const reverb = new Tone.Reverb({decay:6.5, preDelay:0.06, wet:1});
+  await reverb.generate();
+  reverb.connect(masterFilter);                       // tail gets the master lowpass too
+  const reverbSend = new Tone.Gain(0.38).connect(reverb);
+
+  const panner = new Tone.Panner(0);
+  panner.connect(masterFilter);
+  panner.connect(reverbSend);                         // send taken pre-filter: no cycle
+
+  const breathBus = new Tone.Gain(0).connect(panner);
+  const windBus   = new Tone.Gain(0).connect(panner);
+  const stringBus = new Tone.Gain(0).connect(panner);
+  const bellBus   = new Tone.Gain(0).connect(panner);
+
+  /* --- BREATH: filtered noise, no pitched content --- */
+  const bAmp     = new Tone.Gain(0).connect(breathBus);
+  const bLP      = new Tone.Filter({type:'lowpass',  frequency:300, rolloff:-24}).connect(bAmp);
+  const bBPGain  = new Tone.Gain(0).connect(bAmp);
+  const bBP      = new Tone.Filter({type:'bandpass', frequency:600, Q:1}).connect(bBPGain);
+  const bLowGain = new Tone.Gain(0).connect(bAmp);
+  const bLow     = new Tone.Filter({type:'lowpass',  frequency:170, rolloff:-24}).connect(bLowGain);
+
+  const nPink  = new Tone.Noise({type:'pink',  volume:-7});
+  const nBrown = new Tone.Noise({type:'brown', volume:-4});
+  nPink.connect(bLP); nPink.connect(bBP); nBrown.connect(bLow);
+  nPink.start(); nBrown.start();      // free-running excitation; gain is 0 until energy > 0
+
+  /* --- WIND: broad, dark, wide. calmer sibling of BREATH --- *
+   * Two decorrelated pink sources hard-ish panned give real stereo width;
+   * every resonance is deliberately low-Q so it never whistles.          */
+  const wAmp  = new Tone.Gain(0).connect(windBus);
+  const wPanL = new Tone.Panner(-0.62).connect(wAmp);
+  const wPanR = new Tone.Panner( 0.62).connect(wAmp);
+  const wAirL = new Tone.Filter({type:'lowpass', frequency:300, rolloff:-24, Q:0.4}).connect(wPanL);
+  const wAirR = new Tone.Filter({type:'lowpass', frequency:300, rolloff:-24, Q:0.4}).connect(wPanR);
+  const wHPL  = new Tone.Filter({type:'highpass', frequency:165, rolloff:-12}).connect(wAirL);
+  const wHPR  = new Tone.Filter({type:'highpass', frequency:165, rolloff:-12}).connect(wAirR);
+  /* Tone.Noise seeks to a random offset in the noise buffer on start(),
+     so two pink instances are genuinely decorrelated, not a doubled mono. */
+  const wNoiseL = new Tone.Noise({type:'pink', volume:-11}).connect(wHPL);
+  const wNoiseR = new Tone.Noise({type:'pink', volume:-11}).connect(wHPR);
+  wNoiseL.start(); wNoiseR.start();
+
+  const wBodyGain = new Tone.Gain(0).connect(wAmp);                       // weight underneath
+  const wBody     = new Tone.Filter({type:'lowpass', frequency:110, rolloff:-24, Q:0.5}).connect(wBodyGain);
+  const wBodyNoise= new Tone.Noise({type:'brown', volume:-6}).connect(wBody);
+  wBodyNoise.start();
+
+  const wHollowGain = new Tone.Gain(0).connect(wAmp);                     // the "valley" the flock sits in
+  const wHollow     = new Tone.Filter({type:'bandpass', frequency:600, Q:1.6}).connect(wHollowGain);
+  wNoiseL.connect(wHollow);
+
+  const wSheenGain = new Tone.Gain(0).connect(wAmp);                      // top of a gust, only at speed
+  const wSheen     = new Tone.Filter({type:'bandpass', frequency:3200, Q:0.6}).connect(wSheenGain);
+  wNoiseR.connect(wSheen);
+
+  /* --- STRINGS: ONE bowed voice for the whole flock --- */
+  const sAmp   = new Tone.Gain(0).connect(stringBus);
+  const sFilt  = new Tone.Filter({type:'lowpass', frequency:300, rolloff:-12, Q:1}).connect(sAmp);
+  const oscs   = [];
+  for(let i=0;i<3;i++){
+    const o = new Tone.Oscillator({frequency:110, type:'sawtooth', volume:-15});
+    o.connect(sFilt); o.start(); oscs.push(o);
+  }
+  const subGain = new Tone.Gain(0).connect(sFilt);
+  const sub     = new Tone.Oscillator({frequency:55, type:'sine', volume:-6}).connect(subGain);
+  sub.start();
+  const bowGain = new Tone.Gain(0).connect(sFilt);
+  const bowHP   = new Tone.Filter({type:'highpass', frequency:1700, rolloff:-12}).connect(bowGain);
+  const nBow    = new Tone.Noise({type:'white', volume:-6}).connect(bowHP);
+  nBow.start();
+
+  /* --- BELLS: struck only by flock events --- */
+  const bellFilt = new Tone.Filter({type:'lowpass', frequency:2500, rolloff:-12}).connect(bellBus);
+  const bells = new Tone.PolySynth(Tone.FMSynth, {
+    harmonicity: 2.51,          // inharmonic partial -> struck-metal colour
+    modulationIndex: 2.6,
+    oscillator: { type:'sine' },
+    envelope:   { attack:0.28, attackCurve:'sine', decay:6, sustain:0, release:4.5 },
+    modulation: { type:'sine' },
+    modulationEnvelope: { attack:0.35, decay:2.5, sustain:0, release:2 }
+  }).connect(bellFilt);
+  bells.maxPolyphony = MAX_VOICES;
+  bells.volume.value = -11;
+
+  return { limiter, masterGain, masterFilter, meter, reverb, reverbSend, panner,
+           breathBus, windBus, stringBus, bellBus,
+           bAmp, bLP, bBP, bBPGain, bLow, bLowGain,
+           wAmp, wAirL, wAirR, wBody, wBodyGain, wHollow, wHollowGain, wSheen, wSheenGain,
+           sAmp, sFilt, oscs, sub, subGain, bowGain,
+           bellFilt, bells };
+}
+
+/* ------------------------------------------------------------------ *
+ *  MAPPINGS  — every call is a smoothed ramp, never a jump
+ * ------------------------------------------------------------------ */
+function update(){
+  if(!A) return;
+  const t = S.smooth/1000;
+  const o = S.order, e = S.energy, d = S.density;
+
+  A.panner.pan.rampTo(S.centroidX, t);
+  A.masterGain.gain.rampTo(S.master, 0.05);
+
+  /* BREATH — energy owns loudness + brightness, density owns thickness */
+  const bCut = 300 + Math.pow(e,1.35)*5700;               // full 300 Hz .. 6 kHz sweep
+  A.bLP.frequency.rampTo(bCut, t);
+  A.bAmp.gain.rampTo(Math.pow(e,1.25)*0.62, t);
+  A.bBP.frequency.rampTo(380 + o*2820, t);
+  A.bBP.Q.rampTo(0.7 + d*7 + o*3, t);
+  A.bBPGain.gain.rampTo(Math.pow(d,1.4)*0.85, t);
+  A.bLowGain.gain.rampTo(d*0.55, t);
+
+  /* WIND — brightness rides a clamped energy, everything else rides the real one,
+     so above the cap the flock still swells and moves but never gets hissier. */
+  const eW = Math.min(e, WIND_ENERGY_CAP);
+  const wCut = 300 + Math.pow(eW,1.15)*5700;              // 300 Hz .. ~1.7 kHz, then frozen
+  A.wAirL.frequency.rampTo(wCut, t);
+  A.wAirR.frequency.rampTo(wCut*1.18, t);                 // offset top end keeps the sides decorrelated
+  A.wAmp.gain.rampTo(Math.pow(e,0.95)*0.42, t);           // amplitude keeps the full range
+  A.wBody.frequency.rampTo(80 + d*340, t);
+  A.wBodyGain.gain.rampTo(0.34 + d*0.55, t);              // a little more weight under the darker top
+  A.wHollow.frequency.rampTo(420 + o*1480, t);
+  A.wHollow.Q.rampTo(1.4 + o*2.2, t);                     // caps at 3.6 — shape, not whistle
+  A.wHollowGain.gain.rampTo(Math.pow(d,1.1)*0.42, t);
+  A.wSheen.frequency.rampTo(1500 + Math.pow(eW,1.3)*3000, t);
+  A.wSheenGain.gain.rampTo(Math.pow(e,2.6)*0.09, t);      // a hint of air at speed, not a hiss
+
+  /* STRINGS — one voice. pitch bends with order, bow pressure with energy */
+  const base   = 110 * Math.pow(2, o*7/12);               // A2 -> E3, a fifth across the range
+  const spread = 46 - o*43;                               // scattered = beating, aligned = unison
+  for(let i=0;i<3;i++){
+    A.oscs[i].frequency.rampTo(base, t);
+    A.oscs[i].detune.rampTo((i-1)*spread, t);
+  }
+  A.sub.frequency.rampTo(base/2, t);
+  A.subGain.gain.rampTo(Math.pow(d,1.2)*0.5, t);
+  const sCut = 300 + Math.pow(e,1.3)*5700;
+  A.sFilt.frequency.rampTo(sCut, t);
+  A.sFilt.Q.rampTo(0.6 + d*2.4, t);
+  A.sAmp.gain.rampTo(Math.pow(e,1.2)*0.5, t);
+  A.bowGain.gain.rampTo(Math.pow(e,2.2)*0.3, t);
+
+  /* BELLS — resting brightness only; makes no sound without an event */
+  const bellCut = 900 + Math.pow(e,1.2)*4300;
+  A.bellFilt.frequency.rampTo(bellCut, t);
+
+  /* readouts — report whichever layer leads the preset */
+  const p = PRESETS[preset];
+  const cut = p.wind > 0 ? wCut : p.breath > 0 ? bCut : p.string > 0 ? sCut : bellCut;
+  document.getElementById('r-pitch').textContent =
+    p.string > 0 ? base.toFixed(1) + ' Hz  ±' + spread.toFixed(0) + '¢' : 'unpitched';
+  document.getElementById('r-cut').textContent = Math.round(cut) + ' Hz';
+  const drone = (p.breath > 0 ? 2 : 0) + (p.wind > 0 ? 3 : 0) + (p.string > 0 ? 1 : 0);
+  document.getElementById('r-drone').textContent = drone;
+}
+
+/* ------------------------------------------------------------------ *
+ *  EVENTS  — the only thing that starts a bell
+ * ------------------------------------------------------------------ */
+/* The wind leans back under a strike so the bell reads without either getting
+   louder. Caused by the event, slow on both sides — a breath held, not a pump. */
+let duckTimer = null;
+function duckWind(amount){
+  const rest = PRESETS[preset].wind;
+  if(!A || rest <= 0 || DUCK_DEPTH <= 0) return;
+  A.windBus.gain.rampTo(rest * (1 - DUCK_DEPTH*amount), 0.35);
+  clearTimeout(duckTimer);
+  duckTimer = setTimeout(() => {
+    if(A) A.windBus.gain.rampTo(PRESETS[preset].wind, 2.0);
+  }, 450);
+}
+
+function flockEvent(){
+  if(!A || PRESETS[preset].bell === 0) return;
+
+  let n = 1 + Math.round(S.density*3);                    // dense cluster -> fuller strike
+  n = Math.min(n, MAX_VOICES - activeBells);
+  if(n <= 0) return;
+
+  const span   = Math.round(3 + (1-S.order)*7);           // scattered -> wider intervals
+  const room   = Math.max(0, PENT.length - 1 - span);
+  const center = Math.round((1-S.density) * room);        // dense -> lower register
+  const vel    = 0.2 + Math.pow(S.energy,0.8)*0.6;
+  const now    = Tone.now();
+
+  const picked = new Set();
+  let guard = 0;
+  while(picked.size < n && guard++ < 40){
+    picked.add(Math.min(PENT.length-1, center + Math.floor(Math.random()*(span+1))));
+  }
+  /* struck as one gesture: <=60 ms of voicing spread, not a sequence */
+  picked.forEach(ix => {
+    A.bells.triggerAttackRelease(PENT[ix], 4.5, now + Math.random()*0.06, vel);
+  });
+
+  const fired = picked.size;
+  duckWind(Math.min(1, vel + fired*0.06));
+  activeBells += fired;
+  setTimeout(() => { activeBells = Math.max(0, activeBells - fired); }, 9500);
+  document.getElementById('r-voices').textContent = activeBells + ' / ' + MAX_VOICES;
+
+  const b = document.getElementById('btn-event');
+  b.style.background = '#241d10';
+  setTimeout(() => { b.style.background = ''; }, 160);
+}
+
+function checkCohesion(){
+  if(document.getElementById('autoEvent').checked && prevOrder < 0.85 && S.order >= 0.85){
+    flockEvent();
+  }
+  prevOrder = S.order;
+}
+
+/* 3 s ease between order extremes — a simulated input sweep, not an audio clock */
+function scatterCohere(){
+  const from = S.order;
+  const to   = from > 0.5 ? 0.02 : 0.98;
+  const t0   = performance.now();
+  if(rampRAF) cancelAnimationFrame(rampRAF);
+  (function step(){
+    const k = Math.min(1, (performance.now()-t0)/3000);
+    const eased = k < 0.5 ? 2*k*k : 1 - Math.pow(-2*k+2, 2)/2;
+    setParam('order', from + (to-from)*eased);
+    rampRAF = k < 1 ? requestAnimationFrame(step) : null;
+  })();
+}
+
+/* ------------------------------------------------------------------ *
+ *  SIM DRIFT  — a stand-in for live boid data.
+ *
+ *  This is NOT an audio modulator. It is a fake simulation: a damped
+ *  random walk on the four inputs, written straight into the sliders,
+ *  which you can watch move. The engine stays purely reactive — it has
+ *  no idea whether a number came from your mouse or from here.
+ *  A real flock never holds perfectly still, and WIND needs that to
+ *  read as wind rather than as hiss.
+ * ------------------------------------------------------------------ */
+/* tau = seconds a gust holds its direction. rate = typical rate of change per
+   second, so `energy: rate 0.05` means ~10 s to cross from 0.3 to 0.8.
+   Real flock statistics average over 200 boids and are slower still; these are
+   deliberately livelier than life so the mapping stays auditionable. */
+const DRIFT_RATE = 1.0;                         // global agitation multiplier
+const DRIFT_HOME_TAU = 25;                      // seconds; keeps it off the rails
+const DRIFT = {
+  order:     { tau:12, rate:0.045, min:0.06, max:0.97, home:0.55 },
+  energy:    { tau: 9, rate:0.050, min:0.07, max:0.88, home:0.42 },
+  density:   { tau:12, rate:0.032, min:0.14, max:0.90, home:0.50 },
+  centroidX: { tau:18, rate:0.060, min:-0.85, max:0.85, home:0.00 }
+};
+const dVel = { order:0, energy:0, density:0, centroidX:0 };
+let driftOn = false, driftRAF = null, driftLast = 0, driftAccum = 0;
+
+/* ~unit-variance gaussian from three uniforms; cheap and smooth enough here */
+function gauss(){ return (Math.random() + Math.random() + Math.random() - 1.5) * 2; }
+
+function driftFrame(now){
+  if(!driftOn) return;
+  const dt = Math.min(0.1, (now - driftLast)/1000);
+  driftLast = now;
+  driftAccum += dt;
+  if(driftAccum >= 0.05){                       // ~20 Hz is plenty under 100-300 ms smoothing
+    const h = driftAccum;
+    driftAccum = 0;
+    for(const k in DRIFT){
+      const c = DRIFT[k];
+      /* Exact Ornstein-Uhlenbeck step. The sqrt(1-a*a) matters: injecting noise
+         proportional to h instead would make the wander rate depend on the tick
+         rate, which is what made this feel frantic at 20 Hz. */
+      const a = Math.exp(-h / c.tau);
+      dVel[k] = dVel[k]*a + gauss()*c.rate*DRIFT_RATE*Math.sqrt(1 - a*a);
+      let nv = S[k] + dVel[k]*h + (c.home - S[k])*(h/DRIFT_HOME_TAU);
+      if(nv < c.min){ nv = c.min; dVel[k] =  Math.abs(dVel[k])*0.4; }
+      if(nv > c.max){ nv = c.max; dVel[k] = -Math.abs(dVel[k])*0.4; }
+      writeParam(k, nv);
+    }
+    update();
+    checkCohesion();                            // drift can cross 0.85 and strike a bell on its own
+  }
+  driftRAF = requestAnimationFrame(driftFrame);
+}
+
+function toggleDrift(){
+  driftOn = !driftOn;
+  const b = document.getElementById('btn-drift');
+  b.classList.toggle('on', driftOn);
+  b.textContent = 'SIM DRIFT · ' + (driftOn ? 'ON' : 'OFF');
+  if(driftOn){
+    driftLast = performance.now(); driftAccum = 0;
+    for(const k in dVel) dVel[k] = 0;
+    driftRAF = requestAnimationFrame(driftFrame);
+  }else if(driftRAF){
+    cancelAnimationFrame(driftRAF); driftRAF = null;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  UI
+ * ------------------------------------------------------------------ */
+function fmt(k, v){
+  if(k === 'smooth') return Math.round(v) + ' ms';
+  if(k === 'centroidX') return (v >= 0 ? ' ' : '') + v.toFixed(2);
+  return v.toFixed(2);
+}
+
+/* writes state + UI only; caller decides when to touch audio */
+function writeParam(key, value){
+  S[key] = value;
+  const el = document.getElementById('s-' + key);
+  if(el) el.value = value;
+  const rd = document.getElementById('v-' + key);
+  if(rd) rd.textContent = fmt(key, value);
+}
+
+function setParam(key, value){
+  writeParam(key, value);
+  update();
+  if(key === 'order') checkCohesion();
+}
+
+['order','energy','density','centroidX','smooth','master'].forEach(key => {
+  const el = document.getElementById('s-' + key);
+  el.addEventListener('input', () => {
+    if(rampRAF && key === 'order'){ cancelAnimationFrame(rampRAF); rampRAF = null; }
+    setParam(key, parseFloat(el.value));
+  });
+});
+
+function setPreset(p){
+  preset = p;
+  document.querySelectorAll('.preset').forEach(b => b.classList.toggle('on', b.dataset.p === p));
+
+  const m = document.getElementById('mapping');
+  m.innerHTML = MAPPING[p].map(([k,v]) => '<div><dt>'+k+'</dt><dd>'+v+'</dd></div>').join('');
+
+  document.getElementById('btn-event').disabled = PRESETS[p].bell === 0;
+
+  if(A){
+    const g = PRESETS[p];
+    clearTimeout(duckTimer);                  // a pending duck release must not fight the crossfade
+    A.breathBus.gain.rampTo(g.breath, 0.6);   // 600 ms crossfade: within the 200-800 ms attack rule
+    A.windBus.gain.rampTo(g.wind, 0.6);
+    A.stringBus.gain.rampTo(g.string, 0.6);
+    A.bellBus.gain.rampTo(g.bell, 0.6);
+  }
+  update();
+}
+
+document.querySelectorAll('.preset').forEach(b =>
+  b.addEventListener('click', () => setPreset(b.dataset.p)));
+document.getElementById('btn-ramp').addEventListener('click', scatterCohere);
+document.getElementById('btn-event').addEventListener('click', flockEvent);
+document.getElementById('btn-drift').addEventListener('click', toggleDrift);
+
+document.addEventListener('keydown', ev => {
+  if(!A) return;
+  const keys = {'1':'flock','2':'wind','3':'bells','4':'breath','5':'strings','6':'hybrid'};
+  if(keys[ev.key]){ setPreset(keys[ev.key]); }
+  else if(ev.code === 'Space'){ ev.preventDefault(); flockEvent(); }
+  else if(ev.key === 'r' || ev.key === 'R'){ scatterCohere(); }
+  else if(ev.key === 'd' || ev.key === 'D'){ toggleDrift(); }
+});
+
+/* ------------------------------------------------------------------ *
+ *  METER  (visual only — reads the graph, drives nothing)
+ * ------------------------------------------------------------------ */
+function tick(){
+  if(A){
+    let db = A.meter.getValue();
+    if(Array.isArray(db)) db = Math.max.apply(null, db);
+    const norm = Math.max(0, Math.min(1, (db + 60) / 60));
+    const bar  = document.getElementById('meterbar');
+    bar.style.width = (norm*100).toFixed(1) + '%';
+    bar.classList.toggle('hot', db > -4);
+    const flag = document.getElementById('silentflag');
+    const quiet = db < -55;
+    flag.textContent = quiet ? 'SILENT' : Math.round(db) + ' dB';
+    flag.classList.toggle('on', quiet);
+    document.getElementById('r-voices').textContent = activeBells + ' / ' + MAX_VOICES;
+  }
+  requestAnimationFrame(tick);
+}
+requestAnimationFrame(tick);
+
+/* ------------------------------------------------------------------ *
+ *  GATE
+ * ------------------------------------------------------------------ */
+const gate = document.getElementById('gate');
+const gateStatus = document.getElementById('gateStatus');
+let starting = false;
+
+async function begin(){
+  if(starting) return;
+  starting = true;
+  document.getElementById('gateBtn').disabled = true;
+  try{
+    A = await buildAudio(msg => { gateStatus.textContent = msg; });
+    setPreset(preset);
+    update();
+    gate.classList.add('hidden');
+  }catch(err){
+    gateStatus.textContent = 'audio failed: ' + err.message;
+    document.getElementById('gateBtn').disabled = false;
+    starting = false;
+  }
+}
+gate.addEventListener('click', begin);
+
+setPreset(preset);   // paint the UI before audio exists
+</script>
+</body>
+</html>
