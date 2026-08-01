@@ -15,7 +15,13 @@ const SOUND = {
     reverbSend: 0.38,
     windLevel: 0.72,
     bellLevel: 1.0,
-    maxVoices: 12,
+    // Cohesion now fires about every 3 s rather than every 10, so bell tails
+    // overlap where they used to stand alone. At the old cap of 12 the pool
+    // ran dry and whole strikes came out silent — 5 of 100 undisturbed, 17 of
+    // 100 with a cursor in the flock, measured by replaying the detector
+    // against the voice bookkeeping. An event the flock caused that makes no
+    // sound is worse than a rare one.
+    maxVoices: 16,
     // Ramp time for every mapped parameter. Long enough to keep the flock from
     // zippering, short enough that a change still reads as caused by what you
     // just watched happen.
@@ -32,8 +38,14 @@ const SOUND = {
     windCutoffBase: 350,
     windCutoffOctaves: 2.45,
     // How far the wind steps back under a bell, as a fraction of its level.
-    // 0.28 is about -2.8 dB. Zero for a plain sum.
-    duckDepth: 0.28,
+    // 0.16 is about -1.5 dB. Zero for a plain sum.
+    //
+    // This was 0.28 with a 2.9 s envelope, which read as a breath when bells
+    // were 10 s apart. At the current event rate the median gap between
+    // strikes is 1.8 s, so that envelope never returned to rest: the bed would
+    // have sat permanently down and pumped on every chime. Shallower and
+    // shorter, so it still opens a hole for the bell and still gets back.
+    duckDepth: 0.16,
     // Panic is the sharpest signal the sim has. A multiplier on amplitude, not
     // an addition to energy: energy already sits near 0.9 in normal flight, so
     // adding into it would clip the surge away entirely. Not applied to cutoff,
@@ -50,9 +62,30 @@ const SOUND = {
 };
 
 const PENTATONIC = [
-    'A2', 'C3', 'D3', 'E3', 'G3', 'A3', 'C4',
-    'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5', 'G5',
+    'E2', 'G2', 'A2', 'C3', 'D3', 'E3', 'G3', 'A3',
+    'C4', 'D4', 'E4', 'G4', 'A4', 'C5', 'D5', 'E5', 'G5',
 ];
+
+// The two kinds of bell get their own register, and the registers do not touch.
+//
+// They used to share the whole scale, with cohesion's centre sliding up as the
+// flock loosened. That put its top note at exactly the last index of the scale
+// — the same G5 the alarm rings — so the two events overlapped by construction,
+// not by accident: 14.5% of cohesion notes landed at or above the alarm's
+// lowest note over a 300 s run with a cursor in the flock, and the gap between
+// cohesion's p95 and the alarm's p05 was zero. Whatever else distinguished
+// them, they were often literally the same pitch.
+//
+// Separated, cohesion's median falls from 262 Hz to 147 Hz and the highest
+// chime it can possibly strike sits exactly an octave under the lowest note the
+// alarm can possibly strike — worst case against worst case, not a comparison
+// of percentiles. D4-A4 is left empty between the bands: a gap you can hear is
+// what makes them read as two different things rather than as one instrument
+// with a wide range.
+const BELL_BANDS = {
+    cohesion: [0, 8],   // E2..C4 — the flock's own low, wide voice
+    alarm: [13, 16],    // C5..G5 — above everything else, so it cuts through
+};
 
 class FlockSound {
     constructor() {
@@ -156,7 +189,11 @@ class FlockSound {
             modulation: { type: 'sine' },
             modulationEnvelope: { attack: 0.35, decay: 2.5, sustain: 0, release: 2 },
         }).connect(bellFilter);
-        bells.maxPolyphony = SOUND.maxVoices;
+        // Headroom over maxVoices: the strike bookkeeping reserves a voice for
+        // 5 s, the loud part of the tail, while Tone holds the allocation until
+        // the release has fully rung out. Without the margin Tone would drop
+        // notes the bookkeeping had already allowed.
+        bells.maxPolyphony = SOUND.maxVoices + 8;
         bells.volume.value = -11;
 
         // Fade the buses in over 600 ms so switching sound on is not a click.
@@ -227,14 +264,25 @@ class FlockSound {
         // happened rather than sliding in from the last one's position.
         N.bellPan.pan.rampTo(atX * SOUND.bellPanScale, 0.05);
 
-        let count = alarm ? 1 + Math.round(state.panic * 1.4) : 1 + Math.round(state.density * 3);
+        // Two voices of spread rather than three: with events this close
+        // together, a wide chord every time stops reading as a struck bell and
+        // starts reading as a pad.
+        let count = alarm ? 1 + Math.round(state.panic * 1.4) : 1 + Math.round(state.density * 2);
         count = Math.min(count, SOUND.maxVoices - this.activeBells);
-        if (count <= 0) return;
+        // A single voice always gets through. Thinning a strike is a voicing
+        // decision; dropping it outright would break the rule that everything
+        // the flock does is audible.
+        if (count <= 0) count = 1;
 
-        const span = alarm ? 3 : Math.round(3 + (1 - state.order) * 7); // scattered spreads wider
-        const room = Math.max(0, PENTATONIC.length - 1 - span);
-        // Alarm rings in the top of the scale; cohesion sits low when dense.
-        const centre = alarm ? room : Math.round((1 - state.density) * room);
+        // Everything below is placed inside this kind's own band, so a chime can
+        // never wander into the alarm's register however loose the flock gets.
+        const [bandLo, bandHi] = alarm ? BELL_BANDS.alarm : BELL_BANDS.cohesion;
+        const bandWidth = bandHi - bandLo;
+        // Scattered spreads wider, but never wider than the band it lives in.
+        const span = Math.min(bandWidth, alarm ? 3 : Math.round(3 + (1 - state.order) * 7));
+        const room = bandWidth - span;
+        // Alarm rings at the top of its band; cohesion sits lower when dense.
+        const centre = bandLo + (alarm ? room : Math.round((1 - state.density) * room));
         const velocity = alarm
             ? 0.3 + state.panic * 0.5
             : 0.2 + Math.pow(state.energy, 0.8) * 0.6;
@@ -243,20 +291,30 @@ class FlockSound {
         const picked = new Set();
         let guard = 0;
         while (picked.size < count && guard++ < 40) {
-            picked.add(Math.min(PENTATONIC.length - 1, centre + Math.floor(Math.random() * (span + 1))));
+            picked.add(Math.min(bandHi, centre + Math.floor(Math.random() * (span + 1))));
         }
         picked.forEach((i) => {
+            // The bottom of the cohesion band now sits inside the wind's body
+            // layer rather than above it, and low tones need more level to read
+            // as equally loud anyway. Lift the deepest notes by up to a quarter
+            // — roughly +2 dB, deliberately short of full compensation, since
+            // the point of the low band is weight rather than volume.
+            const depth = alarm ? 0 : (bandHi - i) / bandWidth;
+            const v = Math.min(1, velocity * (1 + depth * 0.25));
             // Up to 60 ms of strike spread. That is voicing, not a sequence:
             // nothing is scheduled beyond this one gesture.
-            N.bells.triggerAttackRelease(PENTATONIC[i], 4.5, now + Math.random() * 0.06, velocity);
+            N.bells.triggerAttackRelease(PENTATONIC[i], 4.5, now + Math.random() * 0.06, v);
         });
 
         const fired = picked.size;
         this._duck(Math.min(1, velocity + fired * 0.06));
         this.activeBells += fired;
+        // Held for the loud part of the tail, not the whole allocation. The old
+        // 9.5 s covered the note out to silence, which meant a bell that had
+        // faded to nothing 4 s ago still counted against the next strike.
         setTimeout(() => {
             this.activeBells = Math.max(0, this.activeBells - fired);
-        }, 9500);
+        }, 5000);
     }
 
     // The wind leans back under a strike so the bell reads without either
@@ -265,11 +323,11 @@ class FlockSound {
         if (SOUND.duckDepth <= 0) return;
         const rest = this.muted ? 0 : SOUND.windLevel;
         if (rest <= 0) return;
-        this.nodes.windBus.gain.rampTo(rest * (1 - SOUND.duckDepth * amount), 0.35);
+        this.nodes.windBus.gain.rampTo(rest * (1 - SOUND.duckDepth * amount), 0.3);
         clearTimeout(this.duckTimer);
         this.duckTimer = setTimeout(() => {
-            if (this.running && !this.muted) this.nodes.windBus.gain.rampTo(SOUND.windLevel, 2);
-        }, 450);
+            if (this.running && !this.muted) this.nodes.windBus.gain.rampTo(SOUND.windLevel, 1.2);
+        }, 350);
     }
 
     setMuted(muted) {

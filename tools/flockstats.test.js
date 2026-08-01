@@ -93,21 +93,48 @@ print('     near-constant 0.92+/-0.01 -> mapped ' + lastFlat.toFixed(2) +
       ' over span ' + (flat.hi - flat.lo).toFixed(3) + ' (minSpan 0.05 caps the gain)');
 check('autorange: span never collapses below minSpan', Math.max(flat.hi - flat.lo, 0.05), 0.05, 0.02);
 
-// --- cohesion events: now driven by density, with hysteresis + refractory ---
+// --- cohesion events: a rise in density above a floor that follows it down ---
+// Each tightening should speak, including the small ones partway up a long
+// climb, but never faster than the refractory gap allows.
+function densityFlock(nb) {
+  return makeFlock(200, function () {
+    return { velocity: { x: 3, y: 0 }, position: { x: 500 }, panic: 0, neighbours: nb };
+  });
+}
+
 var s3 = new FlockStats();
-var events = 0;
+var events = 0, minGap = Infinity, prev = -Infinity;
 for (var step = 0; step < 6000; step++) {
   // Swing neighbour count between loose and tight, ~25 s per cycle (4 cycles).
   var phase = Math.sin(step / 240) * 0.5 + 0.5;
-  var nb = 18 + phase * 30;
-  var fl = makeFlock(200, function () {
-    return { velocity: { x: 3, y: 0 }, position: { x: 500 }, panic: 0, neighbours: nb };
-  });
-  s3.sample(fl, 0.016, W);
-  if (s3.takeCohesionEvent()) events++;
+  s3.sample(densityFlock(18 + phase * 30), 0.016, W);
+  if (s3.takeCohesionEvent()) {
+    if (prev > -Infinity) minGap = Math.min(minGap, s3.time - prev);
+    prev = s3.time;
+    events++;
+  }
 }
-print('     4 density cycles over ~96 s -> ' + events + ' strikes');
-check('cohesion: one strike per cycle, no machine-gunning', events, 4, 1);
+print('     4 density cycles over ~96 s -> ' + events + ' strikes,' +
+      ' closest pair ' + minGap.toFixed(2) + ' s apart');
+// A wide band on purpose: this synthetic swing is far cleaner and deeper than
+// anything the real sim produces, so the count is only meant to pin the shape —
+// several strikes per climb, not one per cycle and not a stream.
+check('cohesion: several strikes per climb, not one', events, 16, 10);
+check('cohesion: refractory gap is respected', Math.min(minGap, 1.0), 1.0, 0.001);
+
+// The point of reading a rise rather than a level: a flock that is dense and
+// staying dense is not doing anything, and must fall silent. Under the old
+// level crossing this was a held threshold — silent too, but only because it
+// had latched, which is also why stirring the flock gave one chime and nothing
+// after it.
+var s4 = new FlockStats();
+var held = 0;
+for (var h = 0; h < 1875; h++) {          // 30 s pinned at a tight 45 neighbours
+  s4.sample(densityFlock(45), 0.016, W);
+  if (s4.takeCohesionEvent() && h > 625) held++;  // ignore the initial rise
+}
+print('     20 s held at constant tight density -> ' + held + ' strikes');
+check('cohesion: a static dense flock is silent', held, 0, 0);
 
 // An alarm rise must fire when fresh boids are startled, and must NOT keep
 // firing while the cursor is held still in an already-panicked flock.

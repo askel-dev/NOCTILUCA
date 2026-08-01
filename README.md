@@ -62,9 +62,15 @@ a still flock is a silent one. Everything you hear is one of two things:
   they swell rather than hit. They are silent by default and ring only on
   events. Two kinds, and they sound different on purpose: a *cohesion* chime,
   low and wide, when the flock pulls tight of its own accord; and an *alarm*
-  chime, high and tight, when you startle it. Each rings from where it happened
+  chime, high and tight, when you startle it. They have their own registers and
+  the registers never touch — chimes live in E2–C4, alarms in C5–G5, with a full
+  octave left empty between them. Each rings from where it happened
   in the stereo field — cohesion from the knot of the flock, alarm from the
-  cursor.
+  cursor. Both are detected as a *rise* rather than as a level crossing, which
+  is what keeps them speaking: a flock that is already dense, or a cursor held
+  still in an already-panicked flock, is not doing anything and stays quiet,
+  while every fresh tightening gets its own bell. Expect one roughly every
+  three seconds, more when you stir the flock.
 
 Audio starts on your first click, because browsers require a gesture before
 they will make sound.
